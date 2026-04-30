@@ -1,0 +1,8 @@
+raw_pattern,normalized_shape,confidence,notes
+"(?i)\bPL(?:ATE)?\b",Plate,0.90,plate abbreviation
+"(?i)\bSHT\b",Sheet,0.90,sheet abbreviation
+"(?i)\bHSS\b",HSS Tube,0.95,structural tube
+"(?i)\bTS\b",Tube Steel,0.70,client-dependent; review
+"(?i)\bFB\b",Flat Bar,0.85,flat bar
+"(?i)\bFLAT\s+BAR\b",Flat Bar,0.90,flat bar text
+"(?i)\bL\s*[0-9]",Angle,0.80,L-angle notation

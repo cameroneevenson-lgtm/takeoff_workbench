@@ -1,0 +1,5 @@
+normalized_family,normalized_spec,density_lb_per_in3,notes
+Aluminum,,0.0975,generic aluminum
+Aluminum,5052-H32,0.0968,5052 aluminum
+Steel,Mild Steel,0.283,generic mild steel
+Stainless Steel,,0.289,generic stainless steel

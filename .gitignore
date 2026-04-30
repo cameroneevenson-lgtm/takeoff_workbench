@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime/cache/output
+_runtime/
+_cache/
+_exports/
+_audit/
+logs/
+_ml_runs/
+_ml_models/
+
+# Project/user data
+*.sqlite
+*.db
+*.pdf
+*.dxf
+*.dwg
+*.xlsx
+*.xls
+*.zip
+
+# Generated export CSVs
+_exports/*.csv
+
+# Keep source-controlled rule CSVs
+!takeoff_workbench/data/*.csv
+
+# OS
+Thumbs.db
+.DS_Store

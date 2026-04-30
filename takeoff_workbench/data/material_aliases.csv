@@ -1,0 +1,7 @@
+raw_pattern,normalized_family,normalized_spec,confidence,notes
+"(?i)\bALUM(?:INUM)?\b",Aluminum,,0.80,generic aluminum mention
+"(?i)\bALUMINIUM\b",Aluminum,,0.80,alternate spelling
+"(?i)\bAL\b",Aluminum,,0.70,short aluminum abbreviation
+"(?i)\b5052[- ]?H32\b",Aluminum,5052-H32,0.95,specific aluminum grade
+"(?i)\bM\.?S\.?\b",Steel,Mild Steel,0.75,mild steel abbreviation
+"(?i)\bSS\b",Stainless Steel,,0.70,could conflict with socket screw; review

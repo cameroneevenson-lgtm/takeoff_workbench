@@ -1,0 +1,1 @@
+"""Localhost companion web app."""

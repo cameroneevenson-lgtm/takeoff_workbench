@@ -1,0 +1,4 @@
+raw_pattern,normalized_unit,multiplier_to_inches,notes
+"(?i)\bin\b|""",in,1.0,inches
+"(?i)\bmm\b",mm,0.0393701,millimetres
+"(?i)\bga\b|gauge",gauge,,requires gauge table

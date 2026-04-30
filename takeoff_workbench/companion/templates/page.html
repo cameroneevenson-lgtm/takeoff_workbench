@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Page - Takeoff Workbench</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='companion.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <h1>Page {{ page.page_number if page else "" }}</h1>
+        <a href="/candidates">Candidates</a>
+      </header>
+      {% if error %}<div class="notice">{{ error }}</div>{% endif %}
+      {% if page %}
+        <section>
+          <p><strong>{{ page.document_name }}</strong></p>
+          <p class="muted">{{ page.page_type }} - {{ page.extraction_status }}</p>
+          <pre>{% for block in page.text_blocks %}{{ block.text }}
+{% endfor %}</pre>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

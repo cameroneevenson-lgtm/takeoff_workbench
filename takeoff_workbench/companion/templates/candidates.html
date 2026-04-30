@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Candidates - Takeoff Workbench</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='companion.css') }}">
+    <script defer src="{{ url_for('static', filename='companion.js') }}"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <h1>Candidates</h1>
+        <a href="/">Project</a>
+      </header>
+      {% if error %}<div class="notice">{{ error }}</div>{% endif %}
+      <table>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Page</th>
+            <th>Material</th>
+            <th>Shape</th>
+            <th>Qty</th>
+            <th>Text</th>
+            <th>Evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in candidates %}
+          <tr>
+            <td>{{ c.candidate_status }}</td>
+            <td>{{ c.page_number }}</td>
+            <td>{{ c.normalized_family or c.raw_material_phrase or "" }}</td>
+            <td>{{ c.normalized_shape or c.raw_shape_phrase or "" }}</td>
+            <td>{{ c.parsed_quantity or "" }}</td>
+            <td>{{ c.raw_text }}</td>
+            <td>{% if c.region_id %}<a href="/evidence/{{ c.region_id }}">crop</a>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

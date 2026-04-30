@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Takeoff Workbench Companion</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='companion.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <h1>Takeoff Workbench</h1>
+        <p class="muted">Local companion review</p>
+      </header>
+      {% if error %}<div class="notice">{{ error }}</div>{% endif %}
+      {% if summary %}
+        <section class="summary">
+          <div><strong>{{ summary.documents }}</strong><span>Documents</span></div>
+          <div><strong>{{ summary.pages }}</strong><span>Pages</span></div>
+          <div><strong>{{ summary.candidates }}</strong><span>Candidates</span></div>
+          <div><strong>{{ summary.reviewed_lines }}</strong><span>Reviewed</span></div>
+          <div><strong>{{ summary.needs_review }}</strong><span>Needs Review</span></div>
+        </section>
+      {% endif %}
+      <nav class="actions">
+        <a href="/candidates">Candidates</a>
+      </nav>
+    </main>
+  </body>
+</html>
