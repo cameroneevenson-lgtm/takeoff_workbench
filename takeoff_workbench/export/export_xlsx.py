@@ -6,6 +6,7 @@ import pandas as pd
 
 from takeoff_workbench.data import db
 from takeoff_workbench.export.export_csv import reviewed_lines_dataframe
+from takeoff_workbench.formatting import format_quantity
 
 
 def export_xlsx(db_path: str | Path, output_path: str | Path | None = None) -> Path:
@@ -55,6 +56,9 @@ def export_xlsx(db_path: str | Path, output_path: str | Path | None = None) -> P
         rules = pd.DataFrame(
             [dict(row) for row in conn.execute("SELECT * FROM normalization_rules ORDER BY id").fetchall()]
         )
+    for frame in (needs_review, rejected):
+        if "parsed_quantity" in frame.columns:
+            frame["parsed_quantity"] = frame["parsed_quantity"].map(format_quantity)
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         takeoff.to_excel(writer, sheet_name="Takeoff", index=False)
         needs_review.to_excel(writer, sheet_name="Needs Review", index=False)

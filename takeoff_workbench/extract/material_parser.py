@@ -67,6 +67,16 @@ def _extract_quantity(text: str) -> Optional[float]:
     return None
 
 
+def _table_item_quantity_prefix(text: str) -> tuple[Optional[float], str]:
+    match = re.match(r"^\s*(?:ITEM\s*)?[A-Za-z]?\d+\s+([0-9]+)\s+(.+)$", text, re.I)
+    if not match:
+        return None, text
+    remainder = match.group(2)
+    if not (_find_first(MATERIAL_PATTERNS, remainder) or _find_first(SHAPE_PATTERNS, remainder)):
+        return None, text
+    return float(match.group(1)), remainder
+
+
 def _dimension_text(text: str) -> str:
     tokens = NUMBER_RE.findall(text)
     return " x ".join(token.strip() for token in tokens)
@@ -80,9 +90,14 @@ def parse_material_candidate(text: str) -> ParsedMaterial:
         return parsed
 
     parsed.parsed_quantity = _extract_quantity(raw)
+    parse_text = raw
+    prefix_quantity, prefix_remainder = _table_item_quantity_prefix(raw)
+    if parsed.parsed_quantity is None and prefix_quantity is not None:
+        parsed.parsed_quantity = prefix_quantity
+        parse_text = prefix_remainder
     parsed.raw_material_phrase = _find_first(MATERIAL_PATTERNS, raw)
     parsed.raw_shape_phrase = _find_first(SHAPE_PATTERNS, raw)
-    parsed.raw_dimension_phrase = _dimension_text(raw) or None
+    parsed.raw_dimension_phrase = _dimension_text(parse_text) or None
 
     if re.search(r"(?i)\b(?:GA|GAUGE)\b", raw):
         parsed.parsed_unit = "gauge"
@@ -91,7 +106,7 @@ def parse_material_candidate(text: str) -> ParsedMaterial:
     else:
         parsed.parsed_unit = "in"
 
-    numbers = [parse_number(token) for token in NUMBER_RE.findall(raw)]
+    numbers = [parse_number(token) for token in NUMBER_RE.findall(parse_text)]
     if parsed.parsed_quantity is not None and numbers and int(numbers[0]) == int(parsed.parsed_quantity):
         numbers = numbers[1:]
 

@@ -33,7 +33,7 @@
             <td>{{ c.page_number }}</td>
             <td>{{ c.normalized_family or c.raw_material_phrase or "" }}</td>
             <td>{{ c.normalized_shape or c.raw_shape_phrase or "" }}</td>
-            <td>{{ c.parsed_quantity or "" }}</td>
+            <td>{{ c.parsed_quantity|qty }}</td>
             <td>{{ c.raw_text }}</td>
             <td>{% if c.region_id %}<a href="/evidence/{{ c.region_id }}">crop</a>{% endif %}</td>
           </tr>

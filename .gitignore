@@ -20,7 +20,11 @@ _ml_models/
 
 # Project/user data
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.db
+*.db-shm
+*.db-wal
 *.pdf
 *.dxf
 *.dwg

@@ -49,6 +49,39 @@ def default_project_db_for_pdf(pdf_path: str | os.PathLike[str]) -> Path:
     return pdf.with_suffix(".takeoff.sqlite")
 
 
+def ensure_project_suffix(path: str | os.PathLike[str]) -> Path:
+    project_path = Path(path)
+    if project_path.suffix.lower() not in {".sqlite", ".db"}:
+        return project_path.with_suffix(".takeoff.sqlite")
+    return project_path
+
+
+def backup_project_db(source_db: str | os.PathLike[str], target_db: str | os.PathLike[str]) -> Path:
+    source = Path(source_db).resolve()
+    target = ensure_project_suffix(target_db).resolve()
+    if source == target:
+        return target
+    if not source.exists():
+        raise FileNotFoundError(f"Project DB not found: {source}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source_conn = sqlite3.connect(str(source), timeout=10.0)
+    target_conn = sqlite3.connect(str(target), timeout=10.0)
+    try:
+        source_conn.execute("PRAGMA wal_checkpoint(FULL)")
+        source_conn.backup(target_conn)
+        target_conn.commit()
+    finally:
+        target_conn.close()
+        source_conn.close()
+    log_event(
+        target,
+        "project_saved_as",
+        f"Project saved as {target}",
+        {"source_db": str(source), "target_db": str(target)},
+    )
+    return target
+
+
 def row_to_dict(row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, Any]:
     if row is None:
         return {}
@@ -57,6 +90,10 @@ def row_to_dict(row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, Any]:
 
 def rows_to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
+
+
+def normalized_file_key(path: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
 
 
 def log_event(
@@ -145,6 +182,88 @@ def reset_document_children(conn: sqlite3.Connection, document_id: int) -> None:
         conn.execute(f"DELETE FROM vector_blocks WHERE page_id IN ({marks})", page_ids)
         conn.execute(f"DELETE FROM text_blocks WHERE page_id IN ({marks})", page_ids)
     conn.execute("DELETE FROM pages WHERE document_id = ?", (document_id,))
+
+
+def delete_document(conn: sqlite3.Connection, document_id: int) -> None:
+    page_rows = conn.execute("SELECT id FROM pages WHERE document_id = ?", (document_id,)).fetchall()
+    page_ids = [int(row["id"]) for row in page_rows]
+    if page_ids:
+        marks = ",".join("?" for _ in page_ids)
+        conn.execute(
+            f"""
+            DELETE FROM takeoff_lines
+            WHERE source_document_id = ?
+               OR source_page_id IN ({marks})
+               OR candidate_id IN (
+                    SELECT id FROM material_candidates WHERE page_id IN ({marks})
+               )
+            """,
+            [document_id, *page_ids, *page_ids],
+        )
+    else:
+        conn.execute("DELETE FROM takeoff_lines WHERE source_document_id = ?", (document_id,))
+    conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+
+def remove_document(db_path: str | os.PathLike[str], document_id: int) -> dict[str, Any]:
+    init_db(db_path)
+    with open_db(db_path) as conn:
+        document = conn.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if document is None:
+            return {}
+        before = dict(document)
+        delete_document(conn, document_id)
+        conn.execute(
+            """
+            INSERT INTO app_events(event_type, message, context_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "document_removed",
+                f"Removed PDF from project: {before.get('display_name') or before.get('path')}",
+                json.dumps(before, sort_keys=True),
+                utc_now(),
+            ),
+        )
+        return before
+
+
+def list_documents(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with open_db(db_path) as conn:
+        rows = conn.execute("SELECT * FROM documents ORDER BY display_name, id").fetchall()
+        return rows_to_dicts(rows)
+
+
+def remove_documents_not_in_paths(
+    db_path: str | os.PathLike[str],
+    keep_paths: Iterable[str | os.PathLike[str]],
+) -> list[dict[str, Any]]:
+    keep = {normalized_file_key(path) for path in keep_paths}
+    removed: list[dict[str, Any]] = []
+    init_db(db_path)
+    with open_db(db_path) as conn:
+        rows = conn.execute("SELECT * FROM documents ORDER BY id").fetchall()
+        for row in rows:
+            document = dict(row)
+            if normalized_file_key(document.get("path") or "") in keep:
+                continue
+            delete_document(conn, int(document["id"]))
+            removed.append(document)
+        if removed:
+            conn.execute(
+                """
+                INSERT INTO app_events(event_type, message, context_json, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "documents_reconciled",
+                    f"Removed {len(removed)} PDF(s) not in current Open PDFs selection.",
+                    json.dumps({"removed": removed}, sort_keys=True),
+                    utc_now(),
+                ),
+            )
+    return removed
 
 
 def insert_page(
@@ -473,6 +592,72 @@ def get_page(db_path: str | os.PathLike[str], page_id: int) -> dict[str, Any]:
         return out
 
 
+def list_regions_for_page(db_path: str | os.PathLike[str], page_id: int) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with open_db(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM regions WHERE page_id = ? ORDER BY id",
+            (page_id,),
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def clear_candidates_for_page(db_path: str | os.PathLike[str], page_id: int) -> dict[str, int]:
+    init_db(db_path)
+    with open_db(db_path) as conn:
+        page = conn.execute("SELECT id FROM pages WHERE id = ?", (page_id,)).fetchone()
+        if page is None:
+            return {"candidates": 0, "takeoff_lines": 0, "regions": 0}
+        counts = {
+            "candidates": int(
+                conn.execute(
+                    "SELECT COUNT(*) AS n FROM material_candidates WHERE page_id = ?",
+                    (page_id,),
+                ).fetchone()["n"]
+            ),
+            "takeoff_lines": int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS n
+                    FROM takeoff_lines
+                    WHERE source_page_id = ?
+                       OR candidate_id IN (SELECT id FROM material_candidates WHERE page_id = ?)
+                    """,
+                    (page_id, page_id),
+                ).fetchone()["n"]
+            ),
+            "regions": int(
+                conn.execute(
+                    "SELECT COUNT(*) AS n FROM regions WHERE page_id = ?",
+                    (page_id,),
+                ).fetchone()["n"]
+            ),
+        }
+        conn.execute(
+            """
+            DELETE FROM takeoff_lines
+            WHERE source_page_id = ?
+               OR candidate_id IN (SELECT id FROM material_candidates WHERE page_id = ?)
+            """,
+            (page_id, page_id),
+        )
+        conn.execute("DELETE FROM material_candidates WHERE page_id = ?", (page_id,))
+        conn.execute("DELETE FROM regions WHERE page_id = ?", (page_id,))
+        conn.execute(
+            """
+            INSERT INTO app_events(event_type, message, context_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                "page_candidates_cleared",
+                f"Cleared candidates for page {page_id}",
+                json.dumps({"page_id": page_id, **counts}, sort_keys=True),
+                utc_now(),
+            ),
+        )
+        return counts
+
+
 def list_candidates(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
     init_db(db_path)
     with open_db(db_path) as conn:
@@ -484,7 +669,7 @@ def list_candidates(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
             JOIN pages p ON p.id = c.page_id
             JOIN documents d ON d.id = p.document_id
             LEFT JOIN regions r ON r.id = c.region_id
-            ORDER BY c.updated_at DESC, c.id DESC
+            ORDER BY d.display_name, p.page_number, COALESCE(r.y0, 0), c.id
             """
         ).fetchall()
         return rows_to_dicts(rows)

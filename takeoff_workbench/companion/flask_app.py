@@ -8,6 +8,7 @@ from flask import Flask, jsonify, render_template, send_file
 from takeoff_workbench.companion.api import make_api_blueprint
 from takeoff_workbench.companion.auth import is_readonly
 from takeoff_workbench.data import db
+from takeoff_workbench.formatting import format_quantity
 
 
 def create_app(
@@ -20,6 +21,7 @@ def create_app(
     configured_db = Path(db_path) if db_path else _env_db_path()
     app.config["TAKEOFF_DB_PATH"] = str(configured_db) if configured_db else ""
     app.config["TAKEOFF_READONLY"] = is_readonly(readonly)
+    app.jinja_env.filters["qty"] = format_quantity
     app.register_blueprint(make_api_blueprint(configured_db, readonly=readonly, token=token))
 
     @app.get("/health")

@@ -76,3 +76,5 @@ def test_export_creates_csv_and_xlsx(tmp_path):
     assert xlsx_path.exists()
     frame = pd.read_csv(csv_path)
     assert list(frame["normalized_family"]) == ["Aluminum"]
+    quantity_frame = pd.read_csv(csv_path, dtype={"quantity": str})
+    assert list(quantity_frame["quantity"]) == ["1"]

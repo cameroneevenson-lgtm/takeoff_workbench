@@ -7,16 +7,15 @@ except Exception:  # pragma: no cover - allows non-Qt test environments.
     QModelIndex = object
     Qt = None
 
+from takeoff_workbench.formatting import format_quantity
+
 
 class CandidateTableModel(QAbstractTableModel):
     columns = [
         "candidate_status",
-        "page_number",
         "normalized_family",
         "normalized_shape",
         "parsed_quantity",
-        "normalized_unit",
-        "confidence",
         "normalization_status",
         "raw_text",
     ]
@@ -34,7 +33,10 @@ class CandidateTableModel(QAbstractTableModel):
     def data(self, index, role=None):
         if Qt is None or not index.isValid() or role not in (Qt.DisplayRole, Qt.EditRole):
             return None
-        value = self.rows[index.row()].get(self.columns[index.column()])
+        column = self.columns[index.column()]
+        value = self.rows[index.row()].get(column)
+        if column == "parsed_quantity":
+            return format_quantity(value)
         return "" if value is None else str(value)
 
     def headerData(self, section, orientation, role=None):  # noqa: N802

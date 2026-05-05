@@ -6,6 +6,7 @@ from typing import Iterable
 import pandas as pd
 
 from takeoff_workbench.data import db
+from takeoff_workbench.formatting import format_quantity
 
 
 EXPORT_COLUMNS = [
@@ -84,7 +85,9 @@ def reviewed_lines_dataframe(db_path: str | Path, statuses: Iterable[str] = ("re
     for column in EXPORT_COLUMNS:
         if column not in frame.columns:
             frame[column] = None
-    return frame[EXPORT_COLUMNS]
+    frame = frame[EXPORT_COLUMNS]
+    frame["quantity"] = frame["quantity"].map(format_quantity)
+    return frame
 
 
 def export_csv(db_path: str | Path, output_path: str | Path | None = None) -> Path:

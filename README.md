@@ -18,8 +18,12 @@ M1 is the local PDF evidence rail:
 
 - Open and index PDF files.
 - Open several PDFs into one local project DB.
+- Remove a selected PDF from the project without deleting the source file.
+- Create, open, and save a per-project `.takeoff.sqlite` file so long reviews can be resumed later.
+- Reopen the most recent project automatically on launch and hot relaunch.
 - Store deterministic extraction evidence in SQLite.
-- Render thumbnails and high-resolution selected page previews with zoom.
+- Render thumbnails and high-resolution selected page previews.
+- Zoom the PDF preview with the scroll wheel centered on the cursor; middle-click resets to fit.
 - Let a user click once to start a manual evidence window and click again to confirm it.
 - Attempt PyMuPDF OCR on pages/regions that do not contain embedded PDF text.
 - Create a manually reviewed takeoff line from that region.
@@ -68,7 +72,10 @@ run_companion_tunnel.bat
 
 - `TAKEOFF_HOT_RELOAD=1` enables desktop hot relaunch.
 - `TAKEOFF_HOT_RELOAD=0` runs the desktop once.
+- `TAKEOFF_HOT_WARNING_SECONDS=10` controls the yellow pre-reload warning banner.
+- `TAKEOFF_HOT_RESTART_ON_CLOSE=1` makes the dev watcher restart after a normal manual close.
 - `TAKEOFF_RUNTIME_DIR=_runtime` controls launcher logs.
+- `TAKEOFF_OPEN_RECENT_PROJECT=0` disables automatic reopening of the most recent project.
 - `TAKEOFF_COMPANION_DB` points to the selected project SQLite DB.
 - `TAKEOFF_COMPANION_HOST=127.0.0.1` is the local-first default.
 - `TAKEOFF_COMPANION_PORT=8787` is the default companion port.
