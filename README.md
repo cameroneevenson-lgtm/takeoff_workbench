@@ -22,17 +22,19 @@ M1 is the local PDF evidence rail:
 - Create, open, and save a per-project `.takeoff.sqlite` file so long reviews can be resumed later.
 - Reopen the most recent project automatically on launch and hot relaunch.
 - Store deterministic extraction evidence in SQLite.
-- Render thumbnails and high-resolution selected page previews.
+- Cache per-page thumbnails in SQLite (not currently surfaced in the desktop page list or the companion web UI) and render a high-resolution preview of the selected page.
 - Zoom the PDF preview with the scroll wheel centered on the cursor; middle-click resets to fit.
 - Let a user click once to start a manual evidence window and click again to confirm it.
 - Attempt PyMuPDF OCR on pages/regions that do not contain embedded PDF text.
+- Detect simple BOM-style tables (QTY/DESCRIPTION/MATERIAL/SIZE/PART/ITEM headers) and assign row text to columns by position, including merging wrapped rows.
 - Create a manually reviewed takeoff line from that region.
 - Export reviewed lines to CSV and Excel.
 - Run a localhost Flask/Waitress companion app when explicitly launched.
 - Provide a Cloudflare Tunnel launcher that must be started deliberately.
 
-M1 does not implement OCR, DXF analysis, ML, cloud LLM interpretation, automatic
-approval, or complex table extraction.
+M1 does not implement DXF analysis, ML, cloud LLM interpretation, or automatic
+approval. Table detection is a position-based heuristic for simple BOM-style
+tables, not general-purpose complex table extraction.
 
 ## Launch
 
@@ -67,6 +69,8 @@ Optional tunnel, only when intentionally launched:
 ```bat
 run_companion_tunnel.bat
 ```
+
+`run_all_local_dev.bat` starts the hot-reload desktop app and the local companion together in one step.
 
 ## Environment
 

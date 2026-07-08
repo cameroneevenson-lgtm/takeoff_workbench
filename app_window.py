@@ -37,6 +37,7 @@ from takeoff_workbench.ingest.pdf_ingest import ingest_pdf
 from takeoff_workbench.dev.hot_reload_notice import format_banner_text, read_request, request_path
 from rendering.pdf_page_renderer import (
     PDF_VIEW_CACHE_LIMIT_BYTES,
+    PDF_VIEW_DPI,
     RenderedPage,
     _bucket_px,
     _render_pdf_page,
