@@ -44,6 +44,18 @@ def init_db(db_path: str | os.PathLike[str]) -> Path:
     return path
 
 
+@contextmanager
+def _open_ready_db(db_path: str | os.PathLike[str]) -> Iterator[sqlite3.Connection]:
+    """Ensure the schema exists, then yield an open connection (committed on exit).
+
+    Equivalent to ``init_db(db_path)`` followed by ``with open_db(db_path) as conn:``,
+    which was repeated near-identically across most of the functions in this module.
+    """
+    init_db(db_path)
+    with open_db(db_path) as conn:
+        yield conn
+
+
 def default_project_db_for_pdf(pdf_path: str | os.PathLike[str]) -> Path:
     pdf = Path(pdf_path)
     return pdf.with_suffix(".takeoff.sqlite")
@@ -102,8 +114,7 @@ def log_event(
     message: str,
     context: Optional[Mapping[str, Any]] = None,
 ) -> None:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         conn.execute(
             """
             INSERT INTO app_events(event_type, message, context_json, created_at)
@@ -206,8 +217,7 @@ def delete_document(conn: sqlite3.Connection, document_id: int) -> None:
 
 
 def remove_document(db_path: str | os.PathLike[str], document_id: int) -> dict[str, Any]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         document = conn.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
         if document is None:
             return {}
@@ -229,8 +239,7 @@ def remove_document(db_path: str | os.PathLike[str], document_id: int) -> dict[s
 
 
 def list_documents(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         rows = conn.execute("SELECT * FROM documents ORDER BY display_name, id").fetchall()
         return rows_to_dicts(rows)
 
@@ -241,8 +250,7 @@ def remove_documents_not_in_paths(
 ) -> list[dict[str, Any]]:
     keep = {normalized_file_key(path) for path in keep_paths}
     removed: list[dict[str, Any]] = []
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         rows = conn.execute("SELECT * FROM documents ORDER BY id").fetchall()
         for row in rows:
             document = dict(row)
@@ -529,8 +537,7 @@ def format_dimensions(row: Mapping[str, Any]) -> str:
 
 
 def get_project_summary(db_path: str | os.PathLike[str]) -> dict[str, Any]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         docs = conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
         pages = conn.execute("SELECT COUNT(*) AS n FROM pages").fetchone()["n"]
         candidates = conn.execute("SELECT COUNT(*) AS n FROM material_candidates").fetchone()["n"]
@@ -554,8 +561,7 @@ def get_project_summary(db_path: str | os.PathLike[str]) -> dict[str, Any]:
 
 
 def list_pages(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         rows = conn.execute(
             """
             SELECT p.*, d.display_name AS document_name, d.path AS document_path,
@@ -571,8 +577,7 @@ def list_pages(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 
 
 def get_page(db_path: str | os.PathLike[str], page_id: int) -> dict[str, Any]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         page = conn.execute(
             """
             SELECT p.*, d.display_name AS document_name, d.path AS document_path
@@ -593,8 +598,7 @@ def get_page(db_path: str | os.PathLike[str], page_id: int) -> dict[str, Any]:
 
 
 def list_regions_for_page(db_path: str | os.PathLike[str], page_id: int) -> list[dict[str, Any]]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         rows = conn.execute(
             "SELECT * FROM regions WHERE page_id = ? ORDER BY id",
             (page_id,),
@@ -603,8 +607,7 @@ def list_regions_for_page(db_path: str | os.PathLike[str], page_id: int) -> list
 
 
 def clear_candidates_for_page(db_path: str | os.PathLike[str], page_id: int) -> dict[str, int]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         page = conn.execute("SELECT id FROM pages WHERE id = ?", (page_id,)).fetchone()
         if page is None:
             return {"candidates": 0, "takeoff_lines": 0, "regions": 0}
@@ -659,8 +662,7 @@ def clear_candidates_for_page(db_path: str | os.PathLike[str], page_id: int) -> 
 
 
 def list_candidates(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         rows = conn.execute(
             """
             SELECT c.*, p.page_number, d.display_name AS document_name, d.path AS source_pdf,
@@ -676,8 +678,7 @@ def list_candidates(db_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 
 
 def get_region(db_path: str | os.PathLike[str], region_id: int) -> dict[str, Any]:
-    init_db(db_path)
-    with open_db(db_path) as conn:
+    with _open_ready_db(db_path) as conn:
         row = conn.execute("SELECT * FROM regions WHERE id = ?", (region_id,)).fetchone()
         return row_to_dict(row)
 
