@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -34,14 +33,9 @@ from takeoff_workbench.formatting import format_quantity
 from takeoff_workbench.ingest.file_index import find_pdfs
 from takeoff_workbench.ingest.package_ingest import ingest_pdfs
 from takeoff_workbench.ingest.pdf_ingest import ingest_pdf
-from takeoff_workbench.dev.hot_reload_notice import format_banner_text, read_request, request_path
-from rendering.pdf_page_renderer import (
-    PDF_VIEW_CACHE_LIMIT_BYTES,
-    PDF_VIEW_DPI,
-    RenderedPage,
-    _bucket_px,
-    _render_pdf_page,
-)
+from takeoff_workbench.dev.hot_reload_controller import HotReloadController
+from rendering.page_render_cache import PageRenderCache
+from rendering.pdf_page_renderer import RenderedPage, _bucket_px
 from takeoff_workbench.recent_project import read_recent_project, write_recent_project
 from takeoff_workbench.review.review_actions import (
     accept_candidate,
@@ -62,8 +56,7 @@ class TakeoffMainWindow(QMainWindow):
         self.pages: list[dict] = []
         self.candidates: list[dict] = []
         self.visible_candidates: list[dict] = []
-        self._render_cache: "OrderedDict[tuple[str, int, int, int, int], RenderedPage]" = OrderedDict()
-        self._render_cache_bytes = 0
+        self._page_render_cache = PageRenderCache()
         self._build_ui()
         self._build_actions()
         self._build_hot_reload_timer()
@@ -142,10 +135,11 @@ class TakeoffMainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
 
     def _build_hot_reload_timer(self) -> None:
-        self.hot_reload_timer = QTimer(self)
-        self.hot_reload_timer.setInterval(500)
-        self.hot_reload_timer.timeout.connect(self._poll_hot_reload_notice)
-        self.hot_reload_timer.start()
+        self._hot_reload_controller = HotReloadController(
+            self.hot_reload_banner,
+            app_root=Path(__file__).resolve().parent,
+        )
+        self._hot_reload_controller.start()
 
     def _build_actions(self) -> None:
         toolbar = QToolBar("Main")
@@ -547,22 +541,7 @@ class TakeoffMainWindow(QMainWindow):
         viewport = self.viewer.viewport().size()
         vw = _bucket_px(max(viewport.width(), 960))
         vh = _bucket_px(max(viewport.height(), 720))
-        key = (str(pdf_path.resolve()), page_number, vw, vh, PDF_VIEW_DPI)
-        cached = self._render_cache.get(key)
-        if cached is not None:
-            self._render_cache.move_to_end(key)
-            return cached
-        rendered = _render_pdf_page(pdf_path, page_number, viewport_size=(vw, vh))
-        self._render_cache[key] = rendered
-        self._render_cache.move_to_end(key)
-        self._render_cache_bytes += rendered.bytes_estimate
-        self._evict_render_cache()
-        return rendered
-
-    def _evict_render_cache(self) -> None:
-        while self._render_cache_bytes > PDF_VIEW_CACHE_LIMIT_BYTES and len(self._render_cache) > 1:
-            _, old = self._render_cache.popitem(last=False)
-            self._render_cache_bytes = max(0, self._render_cache_bytes - old.bytes_estimate)
+        return self._page_render_cache.get_or_render(pdf_path, page_number, vw, vh)
 
     def _project_db_for_pdfs(self, pdfs: list[Path]) -> Path:
         if self.db_path:
@@ -595,16 +574,3 @@ class TakeoffMainWindow(QMainWindow):
             runtime = Path(__file__).resolve().parent / runtime
         return runtime / "recent_project.json"
 
-    def _poll_hot_reload_notice(self) -> None:
-        payload = read_request(self._hot_reload_request_path())
-        if not payload:
-            self.hot_reload_banner.setVisible(False)
-            return
-        self.hot_reload_banner.setText(format_banner_text(payload))
-        self.hot_reload_banner.setVisible(True)
-
-    def _hot_reload_request_path(self) -> Path:
-        runtime = Path(os.environ.get("TAKEOFF_RUNTIME_DIR", "_runtime"))
-        if not runtime.is_absolute():
-            runtime = Path(__file__).resolve().parent / runtime
-        return request_path(runtime)
