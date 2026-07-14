@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import sqlite3
 from typing import Mapping
 
 import fitz
@@ -296,6 +297,142 @@ def create_manual_candidate_from_region(
     return candidate_ids[0]
 
 
+def _fetch_page_and_blocks_for_manual_region(
+    conn: sqlite3.Connection, page_id: int
+) -> tuple[sqlite3.Row, list[dict]]:
+    """Stage: load the target page (with its source document path) and its text blocks."""
+    page = conn.execute(
+        """
+        SELECT p.*, d.path AS document_path
+        FROM pages p
+        JOIN documents d ON d.id = p.document_id
+        WHERE p.id = ?
+        """,
+        (page_id,),
+    ).fetchone()
+    if page is None:
+        raise ValueError(f"Page {page_id} not found")
+    blocks = conn.execute("SELECT * FROM text_blocks WHERE page_id = ?", (page_id,)).fetchall()
+    return page, [dict(row) for row in blocks]
+
+
+def _extract_candidate_row_records(
+    page: sqlite3.Row,
+    block_dicts: list[dict],
+    bbox: tuple[float, float, float, float],
+) -> list[CandidateRowText]:
+    """Stage: extraction - PDF word-layout extraction, falling back to text-block-region extraction."""
+    row_records = candidate_row_records_from_pdf_region(page["document_path"], int(page["page_number"]), bbox)
+    if not row_records:
+        row_records = [
+            CandidateRowText(raw_text=row_text)
+            for row_text in rows_inside_region(block_dicts, bbox)
+        ]
+    return row_records
+
+
+def _ocr_fallback_row_records(
+    page: sqlite3.Row,
+    bbox: tuple[float, float, float, float],
+    row_records: list[CandidateRowText],
+) -> tuple[list[CandidateRowText], str | None]:
+    """Stage: OCR fallback - only runs when extraction produced no text at all."""
+    raw_text = "\n".join(record.raw_text for record in row_records).strip()
+    ocr_note = None
+    if not raw_text:
+        raw_text, ocr_note = extract_ocr_text_for_region(
+            page["document_path"],
+            int(page["page_number"]),
+            bbox,
+            dpi=220,
+        )
+        row_records = [CandidateRowText(raw_text=row_text) for row_text in candidate_rows_from_text(raw_text)]
+    if not row_records and raw_text:
+        row_records = [CandidateRowText(raw_text=row_text) for row_text in (candidate_rows_from_text(raw_text) or [raw_text])]
+    return row_records, ocr_note
+
+
+def _crop_and_register_manual_region(
+    conn: sqlite3.Connection,
+    db_path: str | Path,
+    page: sqlite3.Row,
+    page_id: int,
+    bbox: tuple[float, float, float, float],
+    audit_dir: str | Path,
+) -> int:
+    """Stage: crop - save the region's evidence image and insert its `regions` row."""
+    crop_path = Path(audit_dir) / f"region_page_{page['page_number']}_{page_id}.png"
+    if not crop_path.is_absolute():
+        crop_path = Path(db_path).resolve().parent / crop_path
+    crop_pdf_region(page["document_path"], int(page["page_number"]), bbox, crop_path)
+    return db.create_region(
+        conn,
+        page_id=page_id,
+        region_type="manual_selection",
+        x0=float(bbox[0]),
+        y0=float(bbox[1]),
+        x1=float(bbox[2]),
+        y1=float(bbox[3]),
+        source="manual",
+        confidence=1.0,
+        image_crop_path=str(crop_path),
+    )
+
+
+def _normalized_candidate_fields(
+    engine: NormalizationEngine,
+    row_record: CandidateRowText,
+    *,
+    page_id: int,
+    region_id: int,
+    ocr_note: str | None,
+) -> dict:
+    """Stage: normalization - parse and normalize one row record into candidate row fields."""
+    parsed = parse_material_candidate(row_record.parse_text or row_record.raw_text).to_dict()
+    parsed["raw_text"] = row_record.raw_text
+    if row_record.quantity is not None:
+        parsed["parsed_quantity"] = row_record.quantity
+    normalized = engine.normalize(
+        row_record.raw_text,
+        raw_shape_phrase=parsed.get("raw_shape_phrase"),
+        parsed_unit=parsed.get("parsed_unit"),
+    )
+    return {
+        "page_id": page_id,
+        "region_id": region_id,
+        **parsed,
+        **normalized.to_candidate_fields(),
+        "normalized_thickness": parsed.get("parsed_thickness"),
+        "normalized_width": parsed.get("parsed_width"),
+        "normalized_height": parsed.get("parsed_height"),
+        "normalized_length": parsed.get("parsed_length"),
+        "review_required": True,
+        "candidate_status": "needs_review",
+        "confidence": parsed.get("confidence"),
+        "reviewer_notes": ocr_note if ocr_note else None,
+    }
+
+
+def _insert_normalized_candidates(
+    conn: sqlite3.Connection,
+    db_path: str | Path,
+    client_name: str | None,
+    page_id: int,
+    region_id: int,
+    row_records: list[CandidateRowText],
+    ocr_note: str | None,
+) -> list[int]:
+    """Stage: insert - normalize each row record and write a material_candidates row for it."""
+    engine = NormalizationEngine(db_path=db_path, client_name=client_name)
+    candidate_ids: list[int] = []
+    for row_record in row_records:
+        candidate = _normalized_candidate_fields(
+            engine, row_record, page_id=page_id, region_id=region_id, ocr_note=ocr_note
+        )
+        candidate_ids.append(db.create_material_candidate(conn, candidate))
+    return candidate_ids
+
+
 def create_manual_candidates_from_region(
     db_path: str | Path,
     *,
@@ -306,84 +443,16 @@ def create_manual_candidates_from_region(
 ) -> list[int]:
     db.init_db(db_path)
     with db.open_db(db_path) as conn:
-        page = conn.execute(
-            """
-            SELECT p.*, d.path AS document_path
-            FROM pages p
-            JOIN documents d ON d.id = p.document_id
-            WHERE p.id = ?
-            """,
-            (page_id,),
-        ).fetchone()
-        if page is None:
-            raise ValueError(f"Page {page_id} not found")
-        blocks = conn.execute("SELECT * FROM text_blocks WHERE page_id = ?", (page_id,)).fetchall()
-        block_dicts = [dict(row) for row in blocks]
-        row_records = candidate_row_records_from_pdf_region(page["document_path"], int(page["page_number"]), bbox)
-        if not row_records:
-            row_records = [
-                CandidateRowText(raw_text=row_text)
-                for row_text in rows_inside_region(block_dicts, bbox)
-            ]
-        raw_text = "\n".join(record.raw_text for record in row_records).strip()
-        ocr_note = None
-        if not raw_text:
-            raw_text, ocr_note = extract_ocr_text_for_region(
-                page["document_path"],
-                int(page["page_number"]),
-                bbox,
-                dpi=220,
-            )
-            row_records = [CandidateRowText(raw_text=row_text) for row_text in candidate_rows_from_text(raw_text)]
-        if not row_records and raw_text:
-            row_records = [CandidateRowText(raw_text=row_text) for row_text in (candidate_rows_from_text(raw_text) or [raw_text])]
+        page, block_dicts = _fetch_page_and_blocks_for_manual_region(conn, page_id)
+        row_records = _extract_candidate_row_records(page, block_dicts, bbox)
+        row_records, ocr_note = _ocr_fallback_row_records(page, bbox, row_records)
         row_records = _dedupe_candidate_row_records(conn, page_id, bbox, row_records)
         if not row_records:
             return []
-        crop_path = Path(audit_dir) / f"region_page_{page['page_number']}_{page_id}.png"
-        if not crop_path.is_absolute():
-            crop_path = Path(db_path).resolve().parent / crop_path
-        crop_pdf_region(page["document_path"], int(page["page_number"]), bbox, crop_path)
-        region_id = db.create_region(
-            conn,
-            page_id=page_id,
-            region_type="manual_selection",
-            x0=float(bbox[0]),
-            y0=float(bbox[1]),
-            x1=float(bbox[2]),
-            y1=float(bbox[3]),
-            source="manual",
-            confidence=1.0,
-            image_crop_path=str(crop_path),
+        region_id = _crop_and_register_manual_region(conn, db_path, page, page_id, bbox, audit_dir)
+        return _insert_normalized_candidates(
+            conn, db_path, client_name, page_id, region_id, row_records, ocr_note
         )
-        engine = NormalizationEngine(db_path=db_path, client_name=client_name)
-        candidate_ids: list[int] = []
-        for row_record in row_records:
-            parsed = parse_material_candidate(row_record.parse_text or row_record.raw_text).to_dict()
-            parsed["raw_text"] = row_record.raw_text
-            if row_record.quantity is not None:
-                parsed["parsed_quantity"] = row_record.quantity
-            normalized = engine.normalize(
-                row_record.raw_text,
-                raw_shape_phrase=parsed.get("raw_shape_phrase"),
-                parsed_unit=parsed.get("parsed_unit"),
-            )
-            candidate = {
-                "page_id": page_id,
-                "region_id": region_id,
-                **parsed,
-                **normalized.to_candidate_fields(),
-                "normalized_thickness": parsed.get("parsed_thickness"),
-                "normalized_width": parsed.get("parsed_width"),
-                "normalized_height": parsed.get("parsed_height"),
-                "normalized_length": parsed.get("parsed_length"),
-                "review_required": True,
-                "candidate_status": "needs_review",
-                "confidence": parsed.get("confidence"),
-                "reviewer_notes": ocr_note if ocr_note else None,
-            }
-            candidate_ids.append(db.create_material_candidate(conn, candidate))
-        return candidate_ids
 
 
 def _dedupe_candidate_row_records(
